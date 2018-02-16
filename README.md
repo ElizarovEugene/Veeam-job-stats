@@ -43,6 +43,8 @@ Repository jobs:
 ```
 
 As a setting, you must specify variables
+```
 self.address = 'https://IP:9398/api/'
 self.username = 'username'
 self.password = 'password'
+```
