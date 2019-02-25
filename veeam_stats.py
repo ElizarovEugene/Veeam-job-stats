@@ -3,7 +3,7 @@
 
 from bs4 import BeautifulSoup
 import collections
-import keyring
+import datetime
 import re
 import requests
 import sys
@@ -13,7 +13,7 @@ class Veeam:
     #Initialize variable and get API authorize token
     def __init__(self):
         urllib3.disable_warnings()
-        self.address = 'IP/api/'
+        self.address = 'https://IP:9398/api/'
         self.username = 'LOGIN'
         self.password = 'PASSWORD'
         
@@ -56,23 +56,18 @@ class Veeam:
         points = soup.findAll('Ref', {'Type':'RepositoryReference'})
         for point in points:
             name = point.get('Name')
-            if name == 'NetApp SnapShot':
-                continue
-            elif name == 'INFINIDAT InfiniBox Snapshot':
-                continue
-            else:
-                print 'Repository name: ' + name
-                links = point.findAll('Link')
-                link = links[1].get('Href')
-                info = self.get_repositorie_info(link)
-                capacity = round(float(info[0]) / 1000 / 1000 / 1000, 2)
-                free = round(float(info[1]) / 1000 / 1000 / 1000, 2)
-                print 'Repository size: ' + str(capacity) + 'Gb'
-                print 'Repository free size: ' + str(free) + 'Gb'
-                print 'Repository jobs:'
-                for x in info[2]:
-                    print '\t' + x
-                print "\n"
+            print 'Repository name: ' + name
+            links = point.findAll('Link')
+            link = links[1].get('Href')
+            info = self.get_repositorie_info(link)
+            capacity = round(float(info[0]) / 1000 / 1000 / 1000, 2)
+            free = round(float(info[1]) / 1000 / 1000 / 1000, 2)
+            print 'Repository size: ' + str(capacity) + 'Gb'
+            print 'Repository free size: ' + str(free) + 'Gb'
+            print 'Repository jobs:'
+            for x in info[2]:
+                print '\t' + x
+            print "\n"
 
     #Get VM restore points and generate statistic    
     def get_vm_restore_points(self):
@@ -179,12 +174,57 @@ class Veeam:
             print vm
         print '-' * 40
         print 'Total VMs: ' + str(total_vm)
+
+    #Get next run for job        
+    def get_schedule(self, id):    
+        r = requests.get(self.address + 'jobs/' + id + '?format=Entity', headers=self.headers, verify=False)
+        soup = BeautifulSoup(r.text, 'xml')
+        try:
+            time = soup.find('NextRun').getText()
+            time = time.replace('T', ' ')
+            time = time.replace('Z', '')
+            
+            return time
+        except:
+            pass
+
+    #Get jobs and count schedule
+    def get_jobs(self):
+        schedule = {}
+        
+        r = requests.get(self.address + 'jobs', headers=self.headers, verify=False)
+        soup = BeautifulSoup(r.text, 'xml')
+        jobs = soup.findAll('Ref', {'Type':'JobReference'})
+        for job in jobs:
+            name = job.get('Name')
+            id = job.get('UID').replace('urn:veeam:Job:', '')
+            time = self.get_schedule(id)
+            if time is not None:
+                date = datetime.datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
+                time = date + datetime.timedelta(hours=3)
+                time = time.strftime("%Y-%m-%d %H:%M:%S")
+
+            if time in schedule:
+                schedule[time].append(name)
+            else:
+                schedule[time] = [name]
+        
+        ordered = collections.OrderedDict(sorted(schedule.items(), key=lambda t: t[0]))
+        for k, v in ordered.iteritems():
+            if k is not None:
+                print k
+            else:
+                print 'Without schedule:'
+
+            for job in v:
+                print job
+            print '-' * 40
     
 
 if __name__ == "__main__":
     veeam = Veeam()
     if len(sys.argv) == 1:
-        print 'Используйте ключи: -backups -repos -vmlist'
+        print 'Use keys: -backups -repos -vmlist -schedule'
         sys.exit(0)
     if sys.argv[1] == '-backups':
         veeam.get_vm_restore_points()
@@ -192,3 +232,5 @@ if __name__ == "__main__":
         veeam.get_repositories()
     if sys.argv[1] == '-vmlist':
         veeam.get_vm_list()
+    if sys.argv[1] == '-schedule':
+        veeam.get_jobs()
